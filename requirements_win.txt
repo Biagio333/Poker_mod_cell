@@ -25,6 +25,6 @@ tqdm
 seaborn
 PyJWT==1.7.0
 flask_jwt_extended
-fastapi_auth
+#fastapi_auth
 uvicorn==0.23.2
-tesserocr
+pytesseract

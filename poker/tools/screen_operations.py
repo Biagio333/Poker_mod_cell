@@ -1,14 +1,117 @@
 """Operations to help identify items on screen"""
+
 import io
 import logging
 import os
 import sys
 from time import sleep
-
+import subprocess
+import numpy as np
+import cv2
+import time
 import cv2
 import numpy as np
 from PIL import Image, ImageGrab
-from tesserocr import PyTessBaseAPI, PSM, OEM
+#from tesserocr import PyTessBaseAPI, PSM, OEM
+import pytesseract
+from PIL import Image
+import os
+import re
+from typing import Optional, Union
+
+Number = Union[int, float]
+
+_OCR_MAP = str.maketrans({
+    "O": "0", "o": "0",
+    "I": "1", "l": "1", "|": "1", "¡": "1",
+    "S": "5", "s": "5",
+    "B": "8",
+    "Z": "2",
+    "D": "0",  # a volte OCR scambia 0 con D
+})
+
+def parse_ocr_number(text: str, *, allow_negative: bool = True) -> Optional[Number]:
+    if not text:
+        return None
+
+    t = text.strip().translate(_OCR_MAP)
+
+    # Tieni solo caratteri potenzialmente utili, ma senza distruggere troppo il contesto
+    # (lasciamo spazio per trovare token tipo "-1,234.56" dentro una frase)
+    keep = re.sub(r"[^0-9\-\+\.,\s]", " ", t)
+
+    # Trova candidati numerici (con separatori)
+    pattern = r"[-+]?\d[\d\.,\s]*\d|[-+]?\d"
+    candidates = re.findall(pattern, keep)
+
+    if not candidates:
+        return None
+
+    # scegli il candidato "più ricco" (più cifre)
+    def score(c: str) -> int:
+        return len(re.sub(r"\D", "", c))
+
+    c = max(candidates, key=score).strip()
+
+    if not allow_negative:
+        c = c.lstrip("+-")
+
+    # Normalizza spazi interni (a volte OCR mette spazi come separatori migliaia)
+    c = c.replace(" ", "")
+
+    # Heuristica decimale:
+    # - se ci sono sia '.' che ',' => l'ultimo che appare è il decimale
+    # - l'altro diventa separatore migliaia e lo rimuoviamo
+    if "." in c and "," in c:
+        last_dot = c.rfind(".")
+        last_com = c.rfind(",")
+        dec = "." if last_dot > last_com else ","
+        thou = "," if dec == "." else "."
+        c = c.replace(thou, "")
+        c = c.replace(dec, ".")
+    else:
+        # solo uno tra '.' o ','
+        if c.count(",") == 1 and "." not in c:
+            # se dopo la virgola ci sono 1-2-3 cifre, probabile decimale; altrimenti migliaia
+            left, right = c.split(",")
+            if 1 <= len(right) <= 3:
+                c = left.replace(",", "") + "." + right
+            else:
+                c = c.replace(",", "")
+        elif c.count(".") == 1 and "," not in c:
+            left, right = c.split(".")
+            if 1 <= len(right) <= 3:
+                # consideriamo '.' come decimale
+                c = left.replace(".", "") + "." + right
+            else:
+                c = c.replace(".", "")
+        else:
+            # molti separatori uguali -> probabilmente migliaia, rimuovi tutti
+            c = c.replace(",", "").replace(".", "")
+
+    # Pulizia finale: solo segno, cifre e massimo un punto
+    c = re.sub(r"[^0-9\-\+\.]", "", c)
+    if c.count(".") > 1:
+        # tieni solo l'ultimo punto come decimale
+        parts = c.split(".")
+        c = "".join(parts[:-1]) + "." + parts[-1]
+
+    # Parse
+    try:
+        v = float(c)
+    except ValueError:
+        return None
+
+    # se è intero, restituisci int
+    if v.is_integer():
+        return int(v)
+    return v
+
+
+# Path default (se non hai messo Tesseract nel PATH di sistema)
+_TESS_PATH = r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"
+if os.path.exists(_TESS_PATH):
+    pytesseract.pytesseract.tesseract_cmd = _TESS_PATH
 
 from poker.tools.helper import memory_cache, get_dir
 from poker.tools import constants as const
@@ -23,10 +126,19 @@ if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
 else:
     tesserpath = os.path.join(get_dir('codebase'), '..', 'tessdata')
 
-api = PyTessBaseAPI(path=tesserpath,
-                    psm=PSM.SINGLE_LINE,
-                    oem=OEM.LSTM_ONLY)
+#api = PyTessBaseAPI(path=tesserpath,
+#                    psm=PSM.SINGLE_LINE,
+#                    oem=OEM.LSTM_ONLY)
+def ocr_text(pil_img: Image.Image, psm: int = 6) -> str:
+    # testo generico
+    return pytesseract.image_to_string(pil_img, config=f"--oem 3 --psm {psm}")
 
+def ocr_digits(pil_img: Image.Image, psm: int = 7) -> str:
+    # numeri (stack, pot, ecc.)
+    return pytesseract.image_to_string(
+        pil_img,
+        config=f"--oem 3 --psm {psm} -c tessedit_char_whitelist=0123456789.,"
+    )
 
 def find_template_on_screen(template, screenshot, threshold, extended=False):
     """Find template on screen"""
@@ -102,12 +214,34 @@ def prepareImage(img_orig, binarize=True, threshold=76):
     return img_resized
 
 
+def _to_pil(img):
+    """Converte numpy array (OpenCV) in PIL Image se necessario."""
+    if isinstance(img, Image.Image):
+        return img
+
+    if isinstance(img, np.ndarray):
+        if len(img.shape) == 2:  # grayscale
+            return Image.fromarray(img)
+        else:
+            # BGR (opencv) -> RGB
+            return Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+
+    raise TypeError("Unsupported image type for OCR")
+
+
 def get_ocr_number2(img_orig, fast=False):
-    """New OCR based on tesserocr rather than pytesseract, should be much faster"""
-    api.SetVariable("tessedit_char_whitelist", "0123456789.$£B")
-    api.SetImage(img_orig)
-    result = api.GetUTF8Text()
-    return result
+    """OCR numerico usando pytesseract (replacement di tesserocr)."""
+    
+    pil_img = _to_pil(img_orig)
+
+    whitelist = "0123456789.$£B"
+
+    result = pytesseract.image_to_string(
+        pil_img,
+        config=f"--oem 3 --psm 7 -c tessedit_char_whitelist={whitelist}"
+    )
+
+    return result.strip()
 
 
 def get_ocr_number(img_orig, fast=False):
@@ -116,17 +250,17 @@ def get_ocr_number(img_orig, fast=False):
     img_resized2 = prepareImage(img_orig, binarize=True, threshold=125)
     lst = []
 
-    lst.append(
-        get_ocr_number2(img_resized).
-        strip().replace('$', '').replace('£', '').replace('€', '').replace('B', '').replace(',', '.').replace('\n', '').replace(':',
-                                                                                                                                ''))
-    lst.append(
-        get_ocr_number2(img_resized2).
-        strip().replace('$', '').replace('£', '').replace('€', '').replace('B', '').replace(',', '.').replace('\n', '').replace(':',
-                                                                                                                      ''))
+    read1 = get_ocr_number2(img_resized)
+    read1 = parse_ocr_number(read1)
+    #read1 = read1.strip().replace('$', '').replace('£', '').replace('€', '').replace('B', '').replace(',', '.').replace('\n', '').replace(':','').replace(' ','')
+    #read1 = read1.strip().replace('Piatto', '').replace('piatto', '').replace('Contributo', '').replace('contributo', '')
+    lst.append(read1)
+
     try:
-        return float(lst[-1])
-    except ValueError:
+        if lst[-1] is not None:
+            return float(lst[-1])
+        raise Exception("Errore conv numero")
+    except :
         if fast:
             return -1
         # , img_min, img_mod, img_med, img_sharp]
@@ -144,11 +278,41 @@ def get_ocr_number(img_orig, fast=False):
     log.debug(lst)
     for element in lst:
         try:
-            return float(element)
-        except ValueError:
+            if element is not None:
+                num = float(element)
+        except :
             pass
             # log.warning(f"Not recognized: {element}")
     return -1.0
+
+def fast_screenshot(adb_path="adb"):
+    result = subprocess.run(
+        [adb_path, "exec-out", "screencap", "-p"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE
+    )
+
+    if result.returncode != 0:
+        raise RuntimeError(f"ADB error: {result.stderr.decode(errors='ignore')}")
+
+    if not result.stdout:
+        raise RuntimeError("ADB returned empty screenshot")
+
+    # Fix newline Windows
+    data = result.stdout.replace(b"\r\r\n", b"\n")
+
+    img_bgr = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+
+    if img_bgr is None:
+        raise RuntimeError("Failed to decode screenshot")
+
+    # Convert BGR -> RGB
+    img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+
+    # Convert to PIL Image (IMPORTANTE per ImageQt)
+    pil_image = Image.fromarray(img_rgb)
+
+    return pil_image
 
 
 def take_screenshot(virtual_box=False):
@@ -163,9 +327,13 @@ def take_screenshot(virtual_box=False):
 
     """
     if not virtual_box:
-        log.debug("Calling screen grabber")
-        screenshot = ImageGrab.grab()
-        log.debug("Direct screenshot successful")
+        #log.debug("Calling screen grabber")
+        #screenshot = ImageGrab.grab()
+        #log.debug("Direct screenshot successful")
+        screenshot = fast_screenshot()
+        if screenshot is None:
+            print("Errore screenshot")
+            
 
     else:  # virtual_box
         try:
