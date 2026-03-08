@@ -19,6 +19,7 @@ import win32con
 from .base import PyMouseMeta, PyMouseEventMeta, ScrollSupportError
 import pythoncom
 from time import sleep
+import subprocess
 
 class POINT(Structure):
     _fields_ = [("x", c_ulong),
@@ -31,12 +32,13 @@ class PyMouse(PyMouseMeta):
     def press(self, x, y, button=1):
         buttonAction = 2 ** ((2 * button) - 1)
         self.move(x, y)
-        win32api.mouse_event(buttonAction, x, y)
+        #win32api.mouse_event(buttonAction, x, y)
+        subprocess.run(["adb", "shell", "input", "tap", str(x), str(y)])
 
     def release(self, x, y, button=1):
         buttonAction = 2 ** ((2 * button))
         self.move(x, y)
-        win32api.mouse_event(buttonAction, x, y)
+        #win32api.mouse_event(buttonAction, x, y)
 
     def scroll(self, vertical=None, horizontal=None, depth=None):
 
@@ -68,8 +70,8 @@ in Windows. This feature is only available on Mac.')
                     win32api.mouse_event(0x01000, 0, 0, -120, 0)
 
     def move(self, x, y):
-        windll.user32.SetCursorPos(x, y)
-
+        #windll.user32.SetCursorPos(x, y)
+        return
     def drag(self, x, y):
         self.press(*self.position())
         #self.move(x, y)

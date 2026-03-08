@@ -96,7 +96,7 @@ class MouseMoverTableBased(MouseMover):
         try:
             mouse_control = config.config.get('main', 'control')
             if mouse_control != 'Direct mouse control':
-                self.vbox_mode = True
+                self.vbox_mode = False
             else:
                 self.vbox_mode = False
         except:

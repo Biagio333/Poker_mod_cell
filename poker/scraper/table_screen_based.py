@@ -289,14 +289,16 @@ class TableScreenBased(Table):
         return True
 
     def get_other_player_pots(self):
-        self.gui_signals.signal_status.emit(f"Get table pots")
-        self.gui_signals.signal_progressbar_increase.emit(2)
-        self.get_pots()
+
 
         exclude = set(range(self.total_players)) - set(self.players_in_game)
         self.gui_signals.signal_status.emit(f"Get player pots of players in game {self.players_in_game}")
         self.gui_signals.signal_progressbar_increase.emit(5)
         self.get_player_pots(skip=list(exclude.union({0})))
+
+        self.gui_signals.signal_status.emit(f"Get table pots")
+        self.gui_signals.signal_progressbar_increase.emit(2)
+        self.get_pots()
 
         for n in range(1, self.total_players):
             if self.player_pots[n] != "":
@@ -392,7 +394,7 @@ class TableScreenBased(Table):
     def get_dealer_position(self):
         self.gui_signals.signal_status.emit(f"Get dealer position")
         self.gui_signals.signal_progressbar_increase.emit(1)
-        self.get_dealer_position2()
+        self.get_dealer_position2(0.02)
         self.position_utg_plus = (self.total_players + 3 - self.dealer_position) % self.total_players
 
         log.info('Bot position is UTG+' + str(self.position_utg_plus))  # 0 mean bot is UTG

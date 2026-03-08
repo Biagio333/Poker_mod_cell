@@ -169,6 +169,11 @@ class ThreadManager(threading.Thread):
                 mouse = MouseMoverTableBased(table_dict)
                 mouse.move_mouse_away_from_buttons_jump()
 
+                table.screenshot = None
+                table.take_screenshot(True, strategy)
+                if table.screenshot is None:
+                    log.warning("Screenshot failed, retrying...")
+                    continue
                 ready = table.take_screenshot(True, strategy) and \
                         table.get_top_left_corner(strategy) and \
                         table.check_for_captcha(mouse) and \

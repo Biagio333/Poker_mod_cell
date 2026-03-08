@@ -37,7 +37,7 @@ def test_table_scraper():
     table_scraper.lost_everything()
     table_scraper.get_my_cards2()
     table_scraper.get_table_cards2()
-    table_scraper.get_dealer_position2()
+    table_scraper.get_dealer_position2(0.02)
     table_scraper.get_players_in_game()
     table_scraper.get_pots()
     table_scraper.get_players_funds()

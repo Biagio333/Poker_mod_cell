@@ -1,11 +1,13 @@
 """Recognize table"""
 import logging
 
+from tomlkit import value
+
 from poker.scraper.table_scraper_nn import predict
 from poker.scraper.table_setup_actions_and_signals import CARD_SUITES, CARD_VALUES
 from poker.tools.helper import get_dir
 from poker.tools.screen_operations import take_screenshot, crop_screenshot_with_topleft_corner, \
-    is_template_in_search_area, binary_pil_to_cv2, ocr
+    is_template_in_search_area, binary_pil_to_cv2, ocr, is_template_in_search_area_scaled
 
 log = logging.getLogger(__name__)
 
@@ -63,12 +65,16 @@ class TableScraper:
         if 'use_neural_network' in self.table_dict and (self.table_dict['use_neural_network'] == '2' or self.table_dict['use_neural_network'] == 'CheckState.Checked'):
             self.get_my_cards_nn()
         else:
+            self.screenshot.save("debug.png")
             for value in CARD_VALUES:
                 for suit in CARD_SUITES:
-                    if is_template_in_search_area(self.table_dict, self.screenshot,
-                                                value.lower() + suit.lower(), 'my_cards_area', extended=True):
+                    #if is_template_in_search_area(self.table_dict, self.screenshot,
+                    #                            value.lower() + suit.lower(), 'my_cards_area', extended=True):
+                    #    self.my_cards.append(value + suit)
+                    if is_template_in_search_area_scaled (self.table_dict, self.screenshot,
+                              value.lower() + suit.lower(), 'my_cards_area', extended=True):
                         self.my_cards.append(value + suit)
-
+                        
         if len(self.my_cards) != 2:
             log.warning("My cards not recognized")
         log.info(f"My cards: {self.my_cards}")
@@ -122,11 +128,11 @@ class TableScraper:
             return False
         return True
 
-    def get_dealer_position2(self):  # pylint: disable=inconsistent-return-statements
+    def get_dealer_position2(self,threshold=0.01):  # pylint: disable=inconsistent-return-statements
         """Determines position of dealer, where 0=myself, continous counter clockwise"""
         for i in range(self.total_players):
             if is_template_in_search_area(self.table_dict, self.screenshot,
-                                          'dealer_button', 'button_search_area', str(i)):
+                                          'dealer_button', 'button_search_area', str(i), threshold=threshold):
                 self.dealer_position = i
                 log.info(f"Dealer found at position {i}")
                 return True
@@ -189,7 +195,8 @@ class TableScraper:
 
     def get_pots(self):
         """Get current and total pot"""
-        self.current_round_pot = ocr(self.screenshot, 'current_round_pot', self.table_dict, fast=True)
+        #self.current_round_pot = ocr(self.screenshot, 'current_round_pot', self.table_dict, fast=True)
+        self.current_round_pot = sum(x for x in self.player_pots if x != -1.0)
         log.info(f"Current round pot {self.current_round_pot}")
         self.total_pot = ocr(self.screenshot, 'total_pot_area', self.table_dict)
         log.info(f"Total pot {self.total_pot}")
@@ -201,7 +208,7 @@ class TableScraper:
             if i in skip:
                 funds = 0
             else:
-                funds = ocr(self.screenshot, 'player_pot_area', self.table_dict, str(i))
+                funds = ocr(self.screenshot, 'player_pot_area', self.table_dict, str(i), thresholds=[200])
             self.player_pots.append(funds)
         log.info(f"Player pots: {self.player_pots}")
 

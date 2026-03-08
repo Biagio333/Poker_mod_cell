@@ -152,9 +152,9 @@ def get_table_template_image(table_name='default', label='topleft_corner'):
     return template_cv2
 
 
-def get_ocr_float(img_orig, fast=False):
+def get_ocr_float(img_orig, fast=False, thresholds=[76, 100,  180, 190,200, 210]):
     """Return float value from image. -1.0f when OCR failed"""
-    return get_ocr_number(img_orig, fast)
+    return get_ocr_number(img_orig, fast, thresholds)
 
 
 def prepareImage(img_orig, binarize=True, threshold=76):
@@ -255,11 +255,11 @@ def choose_best_number(lst):
 
 
 
-def get_ocr_number(img_orig, fast=False):
+def get_ocr_number(img_orig, fast=False, thresholds = [76, 100,  180, 190,200, 210]):
     """Return float value from image. -1.0f when OCR failed"""
 
 
-    thresholds = [76, 100,  180, 190,200, 210]
+
 
     lst = []
 
@@ -279,6 +279,9 @@ def get_ocr_number(img_orig, fast=False):
             return float(value)
         raise Exception("Errore conv numero")
     except :
+        return -1
+
+
         if fast:
             return -1
         # , img_min, img_mod, img_med, img_sharp]
@@ -348,7 +351,12 @@ def take_screenshot(virtual_box=False):
         #log.debug("Calling screen grabber")
         #screenshot = ImageGrab.grab()
         #log.debug("Direct screenshot successful")
-        screenshot = fast_screenshot()
+        try:
+            screenshot = fast_screenshot()
+        except Exception as exc:
+            log.warning(f"Fast screenshot failed: {exc}. Falling back to ImageGrab.")
+            screenshot = None
+
         if screenshot is None:
             print("Errore screenshot")
             
@@ -401,7 +409,7 @@ def crop_screenshot_with_topleft_corner(original_screenshot, topleft_corner, use
 
     #con il cellulare prendiamo tutto senza crop
     cropped_screenshot = original_screenshot
-    return cropped_screenshot
+    return cropped_screenshot , (0, 0)
 
     log.debug("Cropping top left corner")
     img = cv2.cvtColor(np.array(original_screenshot), cv2.COLOR_BGR2RGB)
@@ -443,15 +451,66 @@ def rotate_image(image, angle):
     return result
 
 
-def check_if_image_in_range(img, screenshot, x1, y1, x2, y2, extended=False):
+def check_if_image_in_range(img, screenshot, x1, y1, x2, y2, extended=False, threshold=0.01):
     cropped_screenshot = screenshot.crop((x1, y1, x2, y2))
     cropped_screenshot = pil_to_cv2(cropped_screenshot)
     count, _, _, _ = find_template_on_screen(
-        img, cropped_screenshot, 0.01, extended=extended)
+        img, cropped_screenshot, threshold, extended=extended)
     return count >= 1
 
+def is_template_in_search_area_scaled(table_dict, screenshot, image_name, image_area, player=None, extended=False):
 
-def is_template_in_search_area(table_dict, screenshot, image_name, image_area, player=None, extended=False):
+    template_cv2 = binary_pil_to_cv2(table_dict[image_name])
+
+    if player:
+        try:
+            search_area = table_dict[image_area][player]
+        except KeyError as exc:
+            raise KeyError(
+                f"The table mapping is missing data for player {player} and {image_area}."
+            ) from exc
+    else:
+        search_area = table_dict[image_area]
+
+    scales = [1.2]
+
+    for scale in scales:
+
+        new_w = int(template_cv2.shape[1] * scale)
+        new_h = int(template_cv2.shape[0] * scale)
+
+        if new_w < 2 or new_h < 2:
+            continue
+
+        template_scaled = cv2.resize(
+            template_cv2,
+            (new_w, new_h),
+            interpolation=cv2.INTER_AREA
+        )
+
+        try:
+            is_in_range = check_if_image_in_range(
+                template_scaled,
+                screenshot,
+                search_area['x1'],
+                search_area['y1'],
+                search_area['x2'],
+                search_area['y2'],
+                extended=extended
+            )
+
+
+
+            if is_in_range:
+                print(image_name, "found at scale", scale)
+                return True
+
+        except Exception:
+            pass
+
+    return False
+
+def is_template_in_search_area(table_dict, screenshot, image_name, image_area, player=None, extended=False,threshold=0.01):
     template_cv2 = binary_pil_to_cv2(table_dict[image_name])
     if player:
         try:
@@ -464,7 +523,7 @@ def is_template_in_search_area(table_dict, screenshot, image_name, image_area, p
     try:
         is_in_range = check_if_image_in_range(template_cv2, screenshot,
                                               search_area['x1'], search_area['y1'], search_area['x2'], search_area['y2'],
-                                              extended=extended)
+                                              extended=extended, threshold=threshold)
     except Exception as exc:
         x = search_area['x2'] - search_area['x1']
         y = search_area['y2'] - search_area['y1']
@@ -479,7 +538,7 @@ def is_template_in_search_area(table_dict, screenshot, image_name, image_area, p
     return is_in_range
 
 
-def ocr(screenshot, image_area, table_dict, player=None, fast=False):
+def ocr(screenshot, image_area, table_dict, player=None, fast=False, thresholds=[76, 100,  180, 190,200, 210]):
     """
     get ocr of area of screenshot
 
@@ -505,4 +564,4 @@ def ocr(screenshot, image_area, table_dict, player=None, fast=False):
         search_area = table_dict[image_area]
     cropped_screenshot = screenshot.crop(
         (search_area['x1'], search_area['y1'], search_area['x2'], search_area['y2']))
-    return get_ocr_float(cropped_screenshot, fast)
+    return get_ocr_float(cropped_screenshot, fast, thresholds)
