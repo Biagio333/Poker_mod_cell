@@ -28,7 +28,7 @@ from poker.scraper.table_setup_actions_and_signals import TableSetupActionAndSig
 from poker.gui.gui_launcher import TableSetupForm, GeneticAlgo, SetupForm, StrategyEditorForm, AnalyserForm
 from poker.tools.mongo_manager import MongoManager
 
-from poker.tools.vbox_manager import VirtualBoxController
+
 from PyQt6.QtWidgets import QMessageBox
 import webbrowser
 from poker.decisionmaker.genetic_algorithm import *  # pylint: disable=wildcard-import
@@ -377,14 +377,10 @@ class UIActionAndSignals(QObject):  # pylint: disable=undefined-variable
     def open_setup(self):
         self.ui_setup = SetupForm()
         self.ui_setup.pushButton_save.clicked.connect(lambda: self.save_setup())
+        
         vm_list = ['Direct mouse control']
-        try:
-            vm = VirtualBoxController()
-            vm_list += vm.get_vbox_list()
-        except:
-            pass  # no virtual machine
-
         self.ui_setup.comboBox_vm.addItems(vm_list)
+
         timeouts = ['8', '9', '10', '11', '12']
         self.ui_setup.comboBox_2.addItems(timeouts)
 

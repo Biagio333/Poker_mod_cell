@@ -18,6 +18,7 @@ from PIL import Image
 import os
 import re
 from typing import Optional, Union
+from collections import Counter
 
 Number = Union[int, float]
 
@@ -36,32 +37,29 @@ def parse_ocr_number(text: str, *, allow_negative: bool = True) -> Optional[Numb
 
     t = text.strip().translate(_OCR_MAP)
 
-    # Tieni solo caratteri potenzialmente utili, ma senza distruggere troppo il contesto
-    # (lasciamo spazio per trovare token tipo "-1,234.56" dentro una frase)
-    keep = re.sub(r"[^0-9\-\+\.,\s]", " ", t)
+    # Tieni solo caratteri utili
+    keep = re.sub(r"[^0-9\-\+\.,\s€$£]", " ", t)
 
-    # Trova candidati numerici (con separatori)
-    pattern = r"[-+]?\d[\d\.,\s]*\d|[-+]?\d"
-    candidates = re.findall(pattern, keep)
+    # Token numerici SENZA attraversare spazi
+    candidates = re.findall(r"[-+]?(?:\d+[.,]\d+|\d+)", keep)
 
     if not candidates:
         return None
 
-    # scegli il candidato "più ricco" (più cifre)
-    def score(c: str) -> int:
-        return len(re.sub(r"\D", "", c))
-
-    c = max(candidates, key=score).strip()
-
     if not allow_negative:
-        c = c.lstrip("+-")
+        candidates = [c.lstrip("+-") for c in candidates]
 
-    # Normalizza spazi interni (a volte OCR mette spazi come separatori migliaia)
-    c = c.replace(" ", "")
+    # Preferisci:
+    # 1) numeri con parte decimale
+    # 2) più cifre
+    def score(c: str):
+        has_decimal = 1 if ("," in c or "." in c) else 0
+        digits = len(re.sub(r"\D", "", c))
+        return (has_decimal, digits)
 
-    # Heuristica decimale:
-    # - se ci sono sia '.' che ',' => l'ultimo che appare è il decimale
-    # - l'altro diventa separatore migliaia e lo rimuoviamo
+    c = max(candidates, key=score)
+
+    # Normalizza separatori
     if "." in c and "," in c:
         last_dot = c.rfind(".")
         last_com = c.rfind(",")
@@ -69,40 +67,21 @@ def parse_ocr_number(text: str, *, allow_negative: bool = True) -> Optional[Numb
         thou = "," if dec == "." else "."
         c = c.replace(thou, "")
         c = c.replace(dec, ".")
-    else:
-        # solo uno tra '.' o ','
-        if c.count(",") == 1 and "." not in c:
-            # se dopo la virgola ci sono 1-2-3 cifre, probabile decimale; altrimenti migliaia
-            left, right = c.split(",")
-            if 1 <= len(right) <= 3:
-                c = left.replace(",", "") + "." + right
-            else:
-                c = c.replace(",", "")
-        elif c.count(".") == 1 and "," not in c:
-            left, right = c.split(".")
-            if 1 <= len(right) <= 3:
-                # consideriamo '.' come decimale
-                c = left.replace(".", "") + "." + right
-            else:
-                c = c.replace(".", "")
-        else:
-            # molti separatori uguali -> probabilmente migliaia, rimuovi tutti
-            c = c.replace(",", "").replace(".", "")
+    elif "," in c:
+        c = c.replace(",", ".")
+    # se c'è solo '.' lo lasciamo così
 
-    # Pulizia finale: solo segno, cifre e massimo un punto
     c = re.sub(r"[^0-9\-\+\.]", "", c)
+
     if c.count(".") > 1:
-        # tieni solo l'ultimo punto come decimale
         parts = c.split(".")
         c = "".join(parts[:-1]) + "." + parts[-1]
 
-    # Parse
     try:
         v = float(c)
     except ValueError:
         return None
 
-    # se è intero, restituisci int
     if v.is_integer():
         return int(v)
     return v
@@ -197,6 +176,7 @@ def prepareImage(img_orig, binarize=True, threshold=76):
     if binarize:
         img_resized = binarize_array_opencv(img_resized, threshold)
 
+   
     if is_debug:
         pics_path = "log/pics"
         try:
@@ -241,24 +221,62 @@ def get_ocr_number2(img_orig, fast=False):
         config=f"--oem 3 --psm 7 -c tessedit_char_whitelist={whitelist}"
     )
 
+    result = pytesseract.image_to_string(
+        pil_img
+    )
+
     return result.strip()
+
+def choose_best_number(lst):
+
+    nums = [x for x in lst if x is not None]
+
+    if not nums:
+        return None
+
+    # 1️⃣ se uno compare più volte → prendilo
+    counter = Counter(nums)
+    value, count = counter.most_common(1)[0]
+
+    if count > 1:
+        return value
+
+    # 2️⃣ tutti diversi → trova quello più vicino agli altri
+    best = None
+    best_score = float("inf")
+
+    for x in nums:
+        score = sum(abs(x - y) for y in nums)
+        if score < best_score:
+            best_score = score
+            best = x
+
+    return best
+
 
 
 def get_ocr_number(img_orig, fast=False):
     """Return float value from image. -1.0f when OCR failed"""
-    img_resized = prepareImage(img_orig, binarize=True)
-    img_resized2 = prepareImage(img_orig, binarize=True, threshold=125)
+
+
+    thresholds = [76, 100,  180, 190,200, 210]
+
     lst = []
 
-    read1 = get_ocr_number2(img_resized)
-    read1 = parse_ocr_number(read1)
-    #read1 = read1.strip().replace('$', '').replace('£', '').replace('€', '').replace('B', '').replace(',', '.').replace('\n', '').replace(':','').replace(' ','')
-    #read1 = read1.strip().replace('Piatto', '').replace('piatto', '').replace('Contributo', '').replace('contributo', '')
-    lst.append(read1)
+    for th in thresholds:
+
+        img_resized = prepareImage(img_orig, binarize=True, threshold=th)
+
+        read_o = get_ocr_number2(img_resized)
+        read = parse_ocr_number(read_o)
+
+        lst.append(read)
+
+    value = choose_best_number(lst)
 
     try:
-        if lst[-1] is not None:
-            return float(lst[-1])
+        if value is not None:
+            return float(value)
         raise Exception("Errore conv numero")
     except :
         if fast:
@@ -380,6 +398,11 @@ def check_cropping(screenshot_list, top_left_corner_img):
     return True
 
 def crop_screenshot_with_topleft_corner(original_screenshot, topleft_corner, useSleep = True):
+
+    #con il cellulare prendiamo tutto senza crop
+    cropped_screenshot = original_screenshot
+    return cropped_screenshot
+
     log.debug("Cropping top left corner")
     img = cv2.cvtColor(np.array(original_screenshot), cv2.COLOR_BGR2RGB)
     count, points, _, _ = find_template_on_screen(topleft_corner, img, 0.01)

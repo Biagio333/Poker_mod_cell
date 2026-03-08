@@ -7,7 +7,7 @@ import numpy as np
 from poker.decisionmaker.genetic_algorithm import GeneticAlgorithm
 from poker.scraper.table_scraper import TableScraper
 from poker.tools.helper import get_config
-from poker.tools.vbox_manager import VirtualBoxController
+
 
 
 # pylint: disable=no-member,unused-variable,no-self-use
@@ -42,15 +42,11 @@ class Table(TableScraper):
             self.entireScreenPIL = self.screenshot
 
         else:
-            try:
-                vb = VirtualBoxController()
-                self.entireScreenPIL = vb.get_screenshot_vbox()
-                self.logger.debug("Screenshot taken from virtual machine")
-            except:
-                self.logger.warning("No virtual machine found. Press SETUP to re initialize the VM controller")
-                # gui_signals.signal_open_setup.emit(p,L)
-                self.take_screenshot2()
-                self.entireScreenPIL = self.screenshot
+
+            self.logger.warning("No virtual machine found. Press SETUP to re initialize the VM controller")
+            # gui_signals.signal_open_setup.emit(p,L)
+            self.take_screenshot2()
+            self.entireScreenPIL = self.screenshot
 
         self.gui_signals.signal_status.emit(str(p.current_strategy))
         self.gui_signals.signal_progressbar_increase.emit(5)
