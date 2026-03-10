@@ -185,7 +185,7 @@ class TableScraper:
             if i in skip:
                 funds = 0
             else:
-                funds = ocr(self.screenshot, 'player_funds_area', self.table_dict, str(i))
+                funds = ocr(self.screenshot, 'player_funds_area', self.table_dict, str(i),thresholds=[76,200])
             self.player_funds.append(funds)
         log.info(f"Player funds: {self.player_funds}")
         return True

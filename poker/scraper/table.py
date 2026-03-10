@@ -43,7 +43,7 @@ class Table(TableScraper):
 
         else:
 
-            self.logger.warning("No virtual machine found. Press SETUP to re initialize the VM controller")
+            #self.logger.warning("No virtual machine found. Press SETUP to re initialize the VM controller")
             # gui_signals.signal_open_setup.emit(p,L)
             self.take_screenshot2()
             self.entireScreenPIL = self.screenshot

@@ -174,8 +174,7 @@ class ThreadManager(threading.Thread):
                 if table.screenshot is None:
                     log.warning("Screenshot failed, retrying...")
                     continue
-                ready = table.take_screenshot(True, strategy) and \
-                        table.get_top_left_corner(strategy) and \
+                ready = table.get_top_left_corner(strategy) and \
                         table.check_for_captcha(mouse) and \
                         table.get_lost_everything(history, table, strategy, self.gui_signals) and \
                         table.check_for_imback(mouse) and \

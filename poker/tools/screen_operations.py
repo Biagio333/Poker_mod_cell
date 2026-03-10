@@ -367,8 +367,8 @@ def take_screenshot(virtual_box=False):
             screenshot = vb.get_screenshot_vbox()
             log.debug("Screenshot taken from virtual machine")
         except:
-            log.warning(
-                "No virtual machine found. Press SETUP to re initialize the VM controller")
+            #log.warning(
+              #  "No virtual machine found. Press SETUP to re initialize the VM controller")
             # gui_signals.signal_open_setup.emit(p,L)
             screenshot = ImageGrab.grab()
     return screenshot
@@ -431,7 +431,10 @@ def crop_screenshot_with_topleft_corner(original_screenshot, topleft_corner, use
         return None, None
 
 
-def binary_pil_to_cv2(img):
+def binary_pil_to_cv2(img,name="nintest"):
+    cv2_img =cv2.cvtColor(np.array(Image.open(io.BytesIO(img))), cv2.COLOR_BGR2RGB)
+    cv2.imwrite("img_export/"+name+'.png', cv2_img) 
+
     return cv2.cvtColor(np.array(Image.open(io.BytesIO(img))), cv2.COLOR_BGR2RGB)
 
 
@@ -460,7 +463,7 @@ def check_if_image_in_range(img, screenshot, x1, y1, x2, y2, extended=False, thr
 
 def is_template_in_search_area_scaled(table_dict, screenshot, image_name, image_area, player=None, extended=False):
 
-    template_cv2 = binary_pil_to_cv2(table_dict[image_name])
+    template_cv2 = binary_pil_to_cv2(table_dict[image_name], name=image_name)
 
     if player:
         try:
@@ -511,7 +514,7 @@ def is_template_in_search_area_scaled(table_dict, screenshot, image_name, image_
     return False
 
 def is_template_in_search_area(table_dict, screenshot, image_name, image_area, player=None, extended=False,threshold=0.01):
-    template_cv2 = binary_pil_to_cv2(table_dict[image_name])
+    template_cv2 = binary_pil_to_cv2(table_dict[image_name], name=image_name)
     if player:
         try:
             search_area = table_dict[image_area][player]
